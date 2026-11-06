@@ -1,0 +1,32 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: asset-lifecycle-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: lifecycle_admin
+      POSTGRES_PASSWORD: lifecycle_prod_password
+      POSTGRES_DB: asset_lifecycle_tracker
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_lifecycle_data:/var/lib/postgresql/data
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    command:
+      - "postgres"
+      - "-c"
+      - "max_connections=100"
+      - "-c"
+      - "shared_buffers=256MB"
+      - "-c"
+      - "effective_cache_size=768MB"
+      - "-c"
+      - "work_mem=8MB"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lifecycle_admin -d asset_lifecycle_tracker"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pg_lifecycle_data:

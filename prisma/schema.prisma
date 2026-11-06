@@ -1,0 +1,115 @@
+// ============================================================================
+// Spreadsheet Escape — Production Prisma ORM Schema (PostgreSQL 16+)
+// ============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum LifecycleStageEnum {
+  procurement
+  deployment
+  maintenance
+  optimization
+  decommission
+
+  @@map("lifecycle_stage")
+}
+
+enum VerificationStatusEnum {
+  verified
+  unverified
+  missing_data
+  contradictory
+  unlocated
+
+  @@map("verification_status")
+}
+
+model AssetRecord {
+  id                 String                 @id @map("id")
+  assetTag           String                 @unique @map("asset_tag")
+  serialNumber       String                 @default("") @map("serial_number")
+  modelName          String                 @map("model_name")
+  normalizedModelKey String                 @map("normalized_model_key")
+  category           String                 @map("category")
+  vendor             String                 @default("") @map("vendor")
+  stage              LifecycleStageEnum     @default(procurement) @map("stage")
+  subStatus          String                 @default("") @map("sub_status")
+
+  // Stage 1: Procurement
+  purchaseDate       String                 @default("") @map("purchase_date")
+  purchaseCost       Decimal                @default(0.00) @db.Decimal(12, 2) @map("purchase_cost")
+  poNumber           String                 @default("") @map("po_number")
+  warrantyExpiryDate String                 @default("") @map("warranty_expiry_date")
+  eolDate            String                 @default("") @map("eol_date")
+
+  // Stage 2: Deployment
+  assignedTo         String                 @default("") @map("assigned_to")
+  assignedEmail      String                 @default("") @map("assigned_email")
+  department         String                 @default("") @map("department")
+  location           String                 @default("") @map("location")
+  deployedDate       String                 @default("") @map("deployed_date")
+  condition          String                 @default("Good") @map("condition")
+
+  // Stage 3: Maintenance
+  maintenanceIssue   String                 @default("") @map("maintenance_issue")
+  rmaNumber          String                 @default("") @map("rma_number")
+  repairCostTotal    Decimal                @default(0.00) @db.Decimal(12, 2) @map("repair_cost_total")
+  warrantyCovered    Boolean                @default(true) @map("warranty_covered")
+  loanerAssetTag     String                 @default("") @map("loaner_asset_tag")
+
+  // Stage 4: Optimization
+  optimizationReason String                 @default("") @map("optimization_reason")
+  storageLocation    String                 @default("") @map("storage_location")
+  idleSinceDate      String                 @default("") @map("idle_since_date")
+  recommendedAction  String                 @default("") @map("recommended_action")
+
+  // Stage 5: Decommission
+  decommissionDate   String                 @default("") @map("decommission_date")
+  decommissionReason String                 @default("") @map("decommission_reason")
+  dataWipeCert       String                 @default("") @map("data_wipe_cert")
+  salvageValue       Decimal                @default(0.00) @db.Decimal(12, 2) @map("salvage_value")
+
+  // Spreadsheet Escape / Verification
+  verificationStatus VerificationStatusEnum @default(verified) @map("verification_status")
+  anomalyNote        String                 @default("") @map("anomaly_note")
+  lastVerifiedDate   String                 @default("") @map("last_verified_date")
+  importedFromCsv    Boolean                @default(false) @map("imported_from_csv")
+  createdAt          DateTime               @default(now()) @db.Timestamptz(6) @map("created_at")
+  updatedAt          DateTime               @updatedAt @db.Timestamptz(6) @map("updated_at")
+
+  events             LifecycleEventRecord[]
+
+  // Production Composite Indexes for 5-Stage Lifecycle & Money Leaks Queries
+  @@index([stage, subStatus], map: "idx_assets_stage_substatus")
+  @@index([normalizedModelKey, stage], map: "idx_assets_normalized_model_key")
+  @@index([warrantyExpiryDate], map: "idx_assets_active_warranty")
+  @@index([eolDate], map: "idx_assets_active_eol")
+  @@index([verificationStatus, purchaseCost], map: "idx_assets_unconfirmed_ghost")
+  @@index([department, stage], map: "idx_assets_department_stage")
+  @@map("assets")
+}
+
+model LifecycleEventRecord {
+  id           String              @id @map("id")
+  assetId      String              @map("asset_id")
+  fromStage    LifecycleStageEnum? @map("from_stage")
+  toStage      LifecycleStageEnum  @map("to_stage")
+  actionTitle  String              @map("action_title")
+  actor        String              @map("actor")
+  costImpact   Decimal             @default(0.00) @db.Decimal(12, 2) @map("cost_impact")
+  notes        String              @default("") @map("notes")
+  metadataJson Json                @default("{}") @db.JsonB @map("metadata_json")
+  createdAt    DateTime            @default(now()) @db.Timestamptz(6) @map("created_at")
+
+  asset        AssetRecord         @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@index([assetId, createdAt(sort: Desc)], map: "idx_lifecycle_events_asset_created")
+  @@map("lifecycle_events")
+}
